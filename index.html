@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Farmer's Dashboard</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link href="https://www.google.com/search?q=https://fonts.googleapis.com/css2%3Ffamily%3DRoboto:wght%40400%3B500%3B700%26display%3Dswap" rel="stylesheet">
+</head>
+<body>
+<header>
+<h1>AI Farmer's Dashboard</h1>
+</header>
+<div class="container">
+<!-- Main Grid Layout -->
+<div class="dashboard-grid">
+
+        <!-- Crop Recommender Card -->
+        <div class="card recommender-card">
+            <h2>🌿 Crop Recommender</h2>
+            <p>Enter soil and climate data to get a crop recommendation.</p>
+            <form id="recommendationForm" action="{{ url_for('predict') }}" method="post">
+                <div class="form-group">
+                    <label>N, P, K (kg/ha)</label>
+                    <div class="input-row">
+                        <input type="number" step="any" name="N" placeholder="Nitrogen" required>
+                        <input type="number" step="any" name="P" placeholder="Phosphorus" required>
+                        <input type="number" step="any" name="K" placeholder="Potassium" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Temp (°C), Humidity (%), pH, Rainfall (mm)</label>
+                    <div class="input-row">
+                         <input type="number" step="any" id="temperatureInput" name="temperature" placeholder="Temp" required>
+                         <input type="number" step="any" id="humidityInput" name="humidity" placeholder="Humidity" required>
+                         <input type="number" step="any" name="ph" placeholder="pH" required>
+                         <input type="number" step="any" name="rainfall" placeholder="Rainfall" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn">Get Recommendation</button>
+            </form>
+            {% if prediction_text %}
+            <div class="result">
+                <h3>{{ prediction_text }}</h3>
+                <button id="learnMoreBtn" class="btn-secondary">Learn More</button>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- MODIFIED: Weather Prediction & Alerts Card -->
+        <div class="card weather-card">
+            <h2>🌦️ Weather Prediction & Alerts</h2>
+            <div class="weather-form">
+                <input type="text" id="cityInput" placeholder="Enter city name" value="Kozhikode">
+                <button id="getWeatherBtn" class="btn-secondary">Get Forecast</button>
+            </div>
+            <div id="weatherResult">
+                <!-- Weather content will be injected by JavaScript -->
+                <p class="placeholder">Enter a city to get the forecast.</p>
+            </div>
+        </div>
+        
+        <!-- Government Schemes Card -->
+        <div class="card schemes-card">
+            <h2>🇮🇳 Government Schemes</h2>
+            <div id="schemesResult">
+                {% if schemes %}
+                    <ul class="schemes-list">
+                    {% for scheme in schemes %}
+                        <li><a href="{{ scheme.link }}" target="_blank" rel="noopener noreferrer">{{ scheme.name }}</a></li>
+                    {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="placeholder">Relevant schemes will be shown here after a crop is recommended.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Agricultural News Card -->
+        <div class="card news-card">
+            <h2>📰 Agricultural News</h2>
+            <div id="newsResult">
+                <p class="placeholder">Loading latest news...</p>
+            </div>
+        </div>
+
+    </div> <!-- End of grid -->
+</div>
+
+<!-- Crop Details Modal -->
+{% if crop_details %}
+<div id="cropModal" class="modal">
+    <div class="modal-content">
+        <span class="close-button">&times;</span>
+        <h2>{{ crop_name|capitalize }} Details</h2>
+        <p><strong>Description:</strong> {{ crop_details.description }}</p>
+        <p><strong>Typical Season:</strong> {{ crop_details.season }}</p>
+        <p><strong>Common Pests:</strong> {{ crop_details.common_pests }}</p>
+    </div>
+</div>
+{% endif %}
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // --- Element Selectors ---
+        const cityInput = document.getElementById('cityInput');
+        const getWeatherBtn = document.getElementById('getWeatherBtn');
+        const weatherResult = document.getElementById('weatherResult');
+        const newsResult = document.getElementById('newsResult');
+        const modal = document.getElementById('cropModal');
+        const learnMoreBtn = document.getElementById('learnMoreBtn');
+        const closeButton = document.querySelector('.close-button');
+
+
+        // --- MODIFIED: Weather Forecast Functionality ---
+        function fetchWeather(city) {
+            weatherResult.innerHTML = '<p class="placeholder">Fetching forecast...</p>';
+            fetch(`http://127.0.0.1:5000/weather?city=${encodeURIComponent(city)}`)
+                .then(response => {
+                    if (!response.ok) { throw new Error(`HTTP error! Status: ${response.status}`); }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) { throw new Error(data.error); }
+                    
+                    let forecastHtml = `<h4>4-Day Forecast for ${data.city}</h4><div class="forecast-container">`;
+                    data.forecasts.forEach(day => {
+                        const iconUrl = `https://openweathermap.org/img/wn/${day.icon}@2x.png`;
+                        forecastHtml += `
+                            <div class="forecast-day">
+                                <strong>${day.day.substring(0, 3)}</strong>
+                                <img src="${iconUrl}" alt="${day.description}">
+                                <div>${day.max_temp}° / ${day.min_temp}°</div>
+                            </div>
+                        `;
+                    });
+                    forecastHtml += '</div>';
+
+                    if (data.alerts && data.alerts.length > 0) {
+                        forecastHtml += '<div class="alerts-section"><h5>⚠️ Important Alerts</h5><ul>';
+                        data.alerts.forEach(alert => {
+                            forecastHtml += `<li>${alert}</li>`;
+                        });
+                        forecastHtml += '</ul></div>';
+                    } else {
+                        forecastHtml += '<div class="alerts-section"><h5>✅ No Major Alerts</h5></div>';
+                    }
+
+                    weatherResult.innerHTML = forecastHtml;
+                })
+                .catch(error => {
+                    weatherResult.innerHTML = `<p class="error">Failed to load forecast. Check API key, city, or network.</p>`;
+                    console.error('Weather fetch error:', error);
+                });
+        }
+        
+        getWeatherBtn.addEventListener('click', () => fetchWeather(cityInput.value));
+
+        // --- News Functionality ---
+        function fetchNews() {
+            fetch('http://127.0.0.1:5000/news')
+                .then(response => {
+                     if (!response.ok) { throw new Error(`HTTP error! Status: ${response.status}`); }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error || data.status === 'error') { throw new Error(data.message || data.error); }
+                    newsResult.innerHTML = '';
+                    const articles = data.articles.slice(0, 4);
+                    if (articles.length === 0) {
+                         newsResult.innerHTML = '<p>No recent agricultural news found.</p>';
+                         return;
+                    }
+                    articles.forEach(article => {
+                        const articleEl = document.createElement('div');
+                        articleEl.classList.add('news-article');
+                        articleEl.innerHTML = `
+                            <h5><a href="${article.url}" target="_blank" rel="noopener noreferrer">${article.title}</a></h5>
+                            <p>${article.source.name} - ${new Date(article.publishedAt).toLocaleDateString()}</p>
+                        `;
+                        newsResult.appendChild(articleEl);
+                    });
+                })
+                .catch(error => {
+                    newsResult.innerHTML = '<p class="error">Failed to load news. Check API key or network.</p>';
+                    console.error('News fetch error:', error);
+                });
+        }
+
+        // --- Modal Functionality ---
+        if (learnMoreBtn) {
+            learnMoreBtn.addEventListener('click', () => modal.style.display = 'block');
+        }
+        if (closeButton) {
+            closeButton.addEventListener('click', () => modal.style.display = 'none');
+        }
+        window.addEventListener('click', (event) => {
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        });
+
+        // --- Initial Data Fetch ---
+        fetchWeather(cityInput.value);
+        fetchNews();
+    });
+</script>
+
+</body>
+</html>
